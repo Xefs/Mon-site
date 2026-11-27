@@ -1484,7 +1484,18 @@ function sync(data){
 }
 async function rpc(action,extra={}){
  const c=client();if(!c)throw Error('Le compte est en cours de chargement.');
- const r=await c.rpc('legend_rarities_v1',{p_action:action,...extra});if(r.error)throw r.error;return r.data;
+ const controller=new AbortController(),delay=action==='apply'?30000:20000;
+ const expired=()=>Object.assign(Error('Le serveur met trop de temps à répondre. Réessaie : ta sélection est conservée.'),{code:'NETWORK_TIMEOUT'});
+ let timer;
+ try{
+  let query=c.rpc('legend_rarities_v1',{p_action:action,...extra});
+  if(typeof query.abortSignal==='function')query=query.abortSignal(controller.signal);
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(expired());},delay);});
+  const r=await Promise.race([query,timeout]);
+  if(controller.signal.aborted)throw expired();
+  if(r.error)throw r.error;return r.data;
+ }catch(e){if(controller.signal.aborted)throw expired();throw e;}
+ finally{clearTimeout(timer);}
 }
 function explain(e){
  if(['PGRST202','42883'].includes(e?.code))return 'La partie serveur doit être installée avec INSTALLER_RARETES.sql.';
@@ -1549,15 +1560,16 @@ function draw(){
  const all=selection.querySelector('[data-lre-all]');if(all)all.indeterminate=picked>0&&picked<eligible.length;
  grid.innerHTML=list.slice(page*pageSize,(page+1)*pageSize).map(row).join('')||'<p class="lrs-empty">Aucune carte. Essaie une autre recherche.</p>';
  pagesNode.innerHTML='<span>'+list.length.toLocaleString('fr-FR')+' cartes</span><button type="button" data-lre-prev '+(page===0?'disabled':'')+' aria-label="Page précédente">←</button><select data-lre-page aria-label="Page">'+Array.from({length:pages},(_,i)=>'<option value="'+i+'" '+(page===i?'selected':'')+'>Page '+(i+1)+' / '+pages+'</option>').join('')+'</select><button type="button" data-lre-next '+(page+1>=pages?'disabled':'')+' aria-label="Page suivante">→</button>';
- footer.innerHTML='<label>Nouvelle rareté <select data-lre-target aria-label="Nouvelle rareté" '+(locked?'disabled':'')+'>'+tiers.map(t=>'<option value="'+t+'" '+(targetTier===t?'selected':'')+' '+(t>=6.5&&!server.advanced?'disabled':'')+'>'+codes[t]+'</option>').join('')+'</select></label><span class="lrs-save-hint">'+(busy?'Enregistrement '+(job?.done||0)+' / '+(job?.total||0)+'…':job?'Reprendre les cartes restantes':'Appliqué à toute la sélection sur le serveur')+'</span><button type="button" class="lrs-save" data-lre-save '+(busy||!selected.size&&!job?'disabled':'')+'>'+(busy?'Enregistrement…':job?'Réessayer':'Enregistrer '+selected.size.toLocaleString('fr-FR')+' carte'+(selected.size===1?'':'s'))+'</button>';
- if(busy){const p=dialog.querySelector('.lrs-save-hint');if(p)p.innerHTML='<progress max="'+job.total+'" value="'+job.done+'"></progress> '+job.done+' / '+job.total;}
+ footer.innerHTML='<label>Nouvelle rareté <select data-lre-target aria-label="Nouvelle rareté" '+(locked?'disabled':'')+'>'+tiers.map(t=>'<option value="'+t+'" '+(targetTier===t?'selected':'')+' '+(t>=6.5&&!server.advanced?'disabled':'')+'>'+codes[t]+'</option>').join('')+'</select></label><span class="lrs-save-hint">'+(busy?(job?'Enregistrement '+job.done+' / '+job.total+'…':'Vérification du serveur…'):job?'Reprendre les cartes restantes':'Appliqué à toute la sélection sur le serveur')+'</span><button type="button" class="lrs-save" data-lre-save '+(busy||!selected.size&&!job?'disabled':'')+'>'+(busy?'Enregistrement…':job?'Réessayer':'Enregistrer '+selected.size.toLocaleString('fr-FR')+' carte'+(selected.size===1?'':'s'))+'</button>';
+ if(busy){const p=dialog.querySelector('.lrs-save-hint');if(p)p.innerHTML=job?'<progress max="'+job.total+'" value="'+job.done+'"></progress> '+job.done+' / '+job.total:'Vérification du serveur…';}
 }
 function toggle(id,on){if(!busy&&!job&&launchAllowed()&&canonical.has(id))on?selected.add(id):selected.delete(id);}
 async function save(){
  if(busy||!launchAllowed()||!job&&!selected.size)return;
- const owner=uid();busy=true;draw();message('');
+ const owner=uid();busy=true;
  let latest=null;
  try{
+  draw();message('');
   if(!job){
    const fresh=await rpc('state');if(uid()!==owner)throw Error('Le compte a changé.');
    sync(fresh);if(!launchAllowed())throw Error('Ton compte n’a plus le droit de modifier les raretés.');
@@ -1593,7 +1605,7 @@ async function save(){
    job=null;try{const data=await rpc('state');if(uid()===owner)sync(data);}catch{}
    message('Le catalogue a changé. Les cartes restantes sont sélectionnées : clique sur Enregistrer pour continuer.');
   }else if(e.code==='42501'||uid()!==owner){job=null;identityChanged();message(explain(e));}
-  else if(e.code&&e.code!=='NETWORK_ERROR'&&!String(e.code).startsWith('PGRST')){job=null;message(explain(e));}
+  else if(e.code&&!['NETWORK_ERROR','NETWORK_TIMEOUT','FETCH_ERROR'].includes(e.code)&&!String(e.code).startsWith('PGRST')){job=null;message(explain(e));}
   else message(explain(e)+(job?' Les lots déjà confirmés sont conservés. Clique sur Réessayer.':''));
  }finally{busy=false;draw();}
 }
