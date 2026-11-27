@@ -1446,12 +1446,14 @@ html:not(#y-a) body:not(#y-b) .gd .guild-message.is-mine .gv3-bubble,html:not(#y
 @media(max-width:1100px){#legendRarityEditor .lrs-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){#legendRarityEditor .lrs-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#legendRarityEditor .lrs-save-hint{display:none}#legendRarityEditor .lrs-save{margin-left:auto}}
 @media(max-width:520px){#legendRarityEditor{width:98vw;max-width:98vw;height:96dvh;max-height:96dvh}#legendRarityEditor .lrs-header,#legendRarityEditor .lrs-filters,#legendRarityEditor .lrs-selection,#legendRarityEditor .lrs-scroll,#legendRarityEditor .lrs-footer,#legendRarityEditor .lrs-pages{padding-left:10px;padding-right:10px}#legendRarityEditor .lrs-filters{gap:6px}#legendRarityEditor .lrs-search{flex-basis:100%}#legendRarityEditor .lrs-filters>select{flex:1;width:35%}#legendRarityEditor .lrs-filters>button{font-size:10px}#legendRarityEditor .lrs-card{gap:6px;padding:7px 6px}#legendRarityEditor .lrs-card img{display:none}#legendRarityEditor .lrs-grid{gap:5px}#legendRarityEditor .lrs-selection{gap:10px}#legendRarityEditor .lrs-header small{font-size:10px}#legendRarityEditor .lrs-save{min-width:0;font-size:11px;padding:11px}#legendRarityEditor .lrs-footer{gap:8px}#legendRarityEditor .lrs-footer label{font-size:11px;gap:5px}}
+
+#legendRarityEditor [data-lre-series]{max-width:235px;text-overflow:ellipsis}@media(max-width:520px){#legendRarityEditor [data-lre-series]{max-width:none;flex-basis:50%}}
 </style><script id="legend-rarity-editor">(()=>{'use strict';
 const tiers=[1,2,3,4,5,6,6.5,7],codes={1:'C',2:'R',3:'SR',4:'SSR',5:'UR',6:'LR',6.5:'NV',7:'Secrète'},
  names={1:'Commun',2:'Rare',3:'Épique',4:'Légendaire',5:'Mythique',6:'Secret',6.5:'Exclusive',7:'Transcendant'},
  colors={1:'#b5b0bd',2:'#65b6ff',3:'#b98aff',4:'#edc65d',5:'#ef92e8',6:'#ff5978',6.5:'#67e7a4',7:'#f9a2d5'},
  glyphs={1:'常',2:'希',3:'傑',4:'伝',5:'神',6:'秘',6.5:'新',7:'極'};
-let server=null,identity=null,loading=null,busy=false,filter='',category='',tierFilter='',page=0,onlySelected=false,targetTier=2,lastFetch=0,job=null;
+let server=null,identity=null,loading=null,busy=false,filter='',category='',seriesFilter='',tierFilter='',page=0,onlySelected=false,targetTier=2,lastFetch=0,job=null;
 const selected=new Set(),canonical=new Map();let dialog,observer,booted=false;
 const api=()=>window.MVProject3Integration,engine=()=>api()?.engine,client=()=>engine()?.gachaSupabaseClient,uid=()=>engine()?.MVOnline?.state?.user?.id||null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1529,11 +1531,15 @@ function createDialog(){
  dialog.addEventListener('cancel',preventWhileSaving);dialog.addEventListener('submit',preventWhileSaving);
  dialog.addEventListener('close',()=>{if(!job)selected.clear();});
 }
+function categoryMatches(c){
+ const p=c.mvPortal||c.contentFamily;
+ return !category||(category==='culture'?['series','films','animation','cartoons','culture'].includes(p):category===p);
+}
+function seriesChoices(){
+ return [...new Set(pool().filter(categoryMatches).map(c=>c.series).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+}
 function filtered(){
- return pool().filter(c=>{
-  const p=c.mvPortal||c.contentFamily,culture=['series','films','animation','cartoons','culture'].includes(p);
-  return (!filter||norm(c.name+' '+c.series).includes(norm(filter)))&&(!category||(category==='culture'?culture:category===p))&&(!tierFilter||tier(c)===Number(tierFilter))&&(!onlySelected||selected.has(c.mvCardId));
- });
+ return pool().filter(c=>categoryMatches(c)&&(!seriesFilter||c.series===seriesFilter)&&(!filter||norm(c.name+' '+c.series).includes(norm(filter)))&&(!tierFilter||tier(c)===Number(tierFilter))&&(!onlySelected||selected.has(c.mvCardId)));
 }
 function selectFiltered(on){
  if(busy||job||!launchAllowed())return;
@@ -1553,7 +1559,7 @@ function draw(){
   filters.innerHTML=selection.innerHTML=pagesNode.innerHTML=footer.innerHTML='';
   grid.innerHTML='<div class="lrs-empty">'+(!server?'Connexion au serveur… <button type="button" data-lre-refresh>Réessayer</button>':'Ton compte n’a pas le droit de modifier les raretés.')+'</div>';return;
  }
- filters.innerHTML='<label class="lrs-search"><span class="sr-only">Rechercher une carte</span><input type="search" data-lre-search placeholder="Rechercher une carte ou un univers…" value="'+esc(filter)+'"></label><select data-lre-category aria-label="Catégorie"><option value="">Tous les univers</option>'+[['manga','Manga'],['pokemon','Pokémon'],['videogames','Jeux vidéo'],['culture','Culture']].map(([v,l])=>'<option value="'+v+'" '+(category===v?'selected':'')+'>'+l+'</option>').join('')+'</select><select data-lre-filter aria-label="Filtrer par rareté"><option value="">Toutes les raretés</option>'+tiers.map(t=>'<option value="'+t+'" '+(tierFilter===String(t)?'selected':'')+'>'+codes[t]+'</option>').join('')+'</select><button type="button" data-lre-reset '+(!filter&&!category&&!tierFilter&&!onlySelected?'disabled':'')+'>Effacer les filtres</button>';
+ filters.innerHTML='<label class="lrs-search"><span class="sr-only">Rechercher une carte</span><input type="search" data-lre-search placeholder="Rechercher une carte ou un univers…" value="'+esc(filter)+'"></label><select data-lre-category aria-label="Catégorie"><option value="">Tous les univers</option>'+[['manga','Manga'],['pokemon','Pokémon'],['videogames','Jeux vidéo'],['culture','Culture']].map(([v,l])=>'<option value="'+v+'" '+(category===v?'selected':'')+'>'+l+'</option>').join('')+'</select><select data-lre-series aria-label="Manga ou licence"><option value="">Tous les mangas / licences</option>'+seriesChoices().map(name=>'<option value="'+esc(name)+'" '+(seriesFilter===name?'selected':'')+'>'+esc(name)+'</option>').join('')+'</select><select data-lre-filter aria-label="Filtrer par rareté"><option value="">Toutes les raretés</option>'+tiers.map(t=>'<option value="'+t+'" '+(tierFilter===String(t)?'selected':'')+'>'+codes[t]+'</option>').join('')+'</select><button type="button" data-lre-reset '+(!filter&&!category&&!seriesFilter&&!tierFilter&&!onlySelected?'disabled':'')+'>Effacer les filtres</button>';
  const list=filtered(),eligible=list.filter(c=>canonical.has(c.mvCardId)),picked=eligible.filter(c=>selected.has(c.mvCardId)).length;
  const pages=Math.max(1,Math.ceil(list.length/pageSize));page=Math.max(0,Math.min(page,pages-1));
  selection.innerHTML='<label class="lrs-all"><input type="checkbox" data-lre-all '+(eligible.length&&picked===eligible.length?'checked':'')+' '+(!eligible.length||locked?'disabled':'')+'> Tout sélectionner <small>('+eligible.length.toLocaleString('fr-FR')+')</small></label><strong>'+selected.size.toLocaleString('fr-FR')+' sélectionnée'+(selected.size===1?'':'s')+'</strong><button type="button" data-lre-clear '+(!selected.size||locked?'disabled':'')+'>Tout désélectionner</button><label class="lrs-only"><input type="checkbox" data-lre-only '+(onlySelected?'checked':'')+'> Ma sélection</label>';
@@ -1616,7 +1622,7 @@ document.addEventListener('click',async e=>{
  if(b.hasAttribute('data-lre-save'))return save();
  if(b.hasAttribute('data-lre-refresh')){await refresh(true);draw();return;}
  if(b.hasAttribute('data-lre-clear')&&!busy&&!job){selected.clear();draw();}
- if(b.hasAttribute('data-lre-reset')){filter='';category='';tierFilter='';onlySelected=false;page=0;draw();}
+ if(b.hasAttribute('data-lre-reset')){filter='';category='';seriesFilter='';tierFilter='';onlySelected=false;page=0;draw();}
  if(b.hasAttribute('data-lre-prev')){page=Math.max(0,page-1);draw();dialog.querySelector('.lrs-scroll').scrollTop=0;}
  if(b.hasAttribute('data-lre-next')){page++;draw();dialog.querySelector('.lrs-scroll').scrollTop=0;}
 });
@@ -1624,7 +1630,8 @@ document.addEventListener('change',e=>{
  const t=e.target;if(!t.closest('#legendRarityEditor'))return;
  if(t.matches('[data-lre-select]')){toggle(t.dataset.lreSelect,t.checked);draw();}
  if(t.matches('[data-lre-all]')){selectFiltered(t.checked);draw();}
- if(t.matches('[data-lre-category]')){category=t.value;page=0;draw();}
+ if(t.matches('[data-lre-category]')){category=t.value;if(!seriesChoices().includes(seriesFilter))seriesFilter='';page=0;draw();}
+ if(t.matches('[data-lre-series]')){seriesFilter=t.value;page=0;draw();}
  if(t.matches('[data-lre-filter]')){tierFilter=t.value;page=0;draw();}
  if(t.matches('[data-lre-only]')){onlySelected=t.checked;page=0;draw();}
  if(t.matches('[data-lre-target]')&&!busy&&!job)targetTier=Number(t.value);
